@@ -5,6 +5,7 @@ import re
 import dash
 import dash_core_components as dcc
 import dash_html_components as html
+import numpy as np
 import pandas as pd
 from dash.dependencies import Input, Output, State
 import cufflinks as cf
@@ -20,28 +21,54 @@ app = dash.Dash(
 app.title = "US Opioid Epidemic"
 server = app.server
 
+
 # Load data
 
+def calculate_decade(df: pd.DataFrame, year_column: str, period: int, start_year: int) -> pd.Series:
+    end_year = df[year_column].max()
+
+    year_range = end_year - start_year
+    modulo = year_range % period
+
+    final_start = end_year - period if modulo == 0 else end_year - modulo
+    final_end = end_year + 1
+
+    starts = np.arange(start_year, final_start, period).tolist()
+    tuples = [(start, start + period) for start in starts]
+    # We'll add the last period calculated earlier
+    tuples.append(tuple([final_start, final_end]))
+    bins = pd.IntervalIndex.from_tuples(tuples, closed='left')
+    original_labels = list(bins)
+    new_labels = [b.left for b in original_labels]
+    label_dict = dict(zip(original_labels, new_labels))
+
+    series = pd.cut(df[year_column], bins=bins, include_lowest=True, precision=0)
+
+    return series.replace(label_dict)
+
+
 APP_PATH = str(pathlib.Path(__file__).parent.resolve())
+
+YEAR_COLUMN = 'bld_age'
+PERIOD = 10
+START_YEAR = 1900
 
 df_lat_lon = pd.read_csv(
     os.path.join(APP_PATH, os.path.join("data", "lat_lon_counties.csv"))
 )
 df_lat_lon["FIPS "] = df_lat_lon["FIPS "].apply(lambda x: str(x).zfill(5))
 
-df_full_data = pd.read_csv(
+raw_data = pd.read_csv(
     os.path.join(
-        APP_PATH, os.path.join("data", "age_adjusted_death_rate_no_quotes.csv")
+        APP_PATH, os.path.join("data", "alldata_wgs84.csv")
     )
 )
-df_full_data["County Code"] = df_full_data["County Code"].apply(
-    lambda x: str(x).zfill(5)
-)
-df_full_data["County"] = (
-    df_full_data["Unnamed: 0"] + ", " + df_full_data.County.map(str)
-)
+raw_data.dropna(subset=[YEAR_COLUMN], inplace=True)
+raw_data[YEAR_COLUMN] = raw_data[YEAR_COLUMN].astype(int)
+df_full_data = raw_data[raw_data[YEAR_COLUMN] >= START_YEAR]
 
-YEARS = [2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015]
+df_full_data['decade'] = calculate_decade(df_full_data, YEAR_COLUMN, PERIOD, START_YEAR)
+YEARS = np.unique(df_full_data['decade'].values.tolist())
 
 BINS = [
     "0-2",
@@ -343,17 +370,13 @@ def display_selected_data(selectedData, chart_dropdown, year):
     for i in range(len(fips)):
         if len(fips[i]) == 4:
             fips[i] = "0" + fips[i]
-    dff = df_full_data[df_full_data["County Code"].isin(fips)]
-    dff = dff.sort_values("Year")
-
-    regex_pat = re.compile(r"Unreliable", flags=re.IGNORECASE)
-    dff["Age Adjusted Rate"] = dff["Age Adjusted Rate"].replace(regex_pat, 0)
+    dff = df_full_data.sort_values(YEAR_COLUMN)
 
     if chart_dropdown != "death_rate_all_time":
         title = "Absolute deaths per county, <b>1999-2016</b>"
         AGGREGATE_BY = "Deaths"
         if "show_absolute_deaths_single_year" == chart_dropdown:
-            dff = dff[dff.Year == year]
+            dff = dff[dff.decade == year]
             title = "Absolute deaths per county, <b>{0}</b>".format(year)
         elif "show_death_rate_single_year" == chart_dropdown:
             dff = dff[dff.Year == year]
