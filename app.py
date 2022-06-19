@@ -1,3 +1,4 @@
+import json
 import os
 import pathlib
 import re
@@ -73,17 +74,7 @@ DECADES = np.unique(df_full_data['decade'].values.tolist())
 BUILDING_MATERIALS = list(range(1, 7))
 BUILDING_MATERIAL_COLUMN_PREFIX = 'bcn_mate_'
 
-BINS = [
-    "0-1000",
-    "1000-2500",
-    "2500-5000",
-    "5000-7500",
-    "7500-10000",
-    "10000-15000",
-    "15000-20000",
-    "20000-30000",
-    ">30000",
-]
+BINS = [f"{str(decade)}-{str(decade + PERIOD)}" for decade in DECADES]
 
 DEFAULT_COLORSCALE = [
     "#f2fffb",
@@ -95,6 +86,9 @@ DEFAULT_COLORSCALE = [
     "#59dab2",
     "#45d0a5",
     "#31c194",
+    "#2bb489",
+    "#25a27b",
+    "#1e906d",
 ]
 
 DEFAULT_OPACITY = 0.8
@@ -178,10 +172,10 @@ app.layout = html.Div(
                                                 accesstoken=mapbox_access_token,
                                                 style=mapbox_style,
                                                 center=dict(
-                                                    lat=38.72490, lon=-95.61446
+                                                    lat=41.3853, lon=2.1687
                                                 ),
                                                 pitch=0,
-                                                zoom=3.5,
+                                                zoom=15,
                                             ),
                                             autosize=True,
                                         ),
@@ -199,14 +193,14 @@ app.layout = html.Div(
                             options=[
                                 {
                                     "label": "Histogram of material distribution (single decade)",
-                                    "value": "show_single_year",
+                                    "value": "show_single_decade",
                                 },
                                 {
                                     "label": "Histogram of total material distribution (1900-present)",
                                     "value": "show_all_time",
                                 }
                             ],
-                            value="show_single_year",
+                            value="show_single_decade",
                             id="chart-dropdown",
                         ),
                         dcc.Graph(
@@ -239,9 +233,9 @@ def display_map(decade, figure):
 
     data = [
         dict(
-            lat=df_lat_lon["Latitude "],
-            lon=df_lat_lon["Longitude"],
-            text=df_lat_lon["Hover"],
+            lat=df_full_data["y"],
+            lon=df_full_data["x"],
+            text=df_full_data[YEAR_COLUMN],
             type="scattermapbox",
             hoverinfo="text",
             marker=dict(size=5, color="white", opacity=0),
@@ -282,9 +276,9 @@ def display_map(decade, figure):
         lon = figure["layout"]["mapbox"]["center"]["lon"]
         zoom = figure["layout"]["mapbox"]["zoom"]
     else:
-        lat = 38.72490
-        lon = -95.61446
-        zoom = 3.5
+        lat = 41.3853
+        lon = 2.1687
+        zoom = 15
 
     layout = dict(
         mapbox=dict(
@@ -300,18 +294,23 @@ def display_map(decade, figure):
         dragmode="lasso",
     )
 
-    base_url = "https://raw.githubusercontent.com/jackparmer/mapbox-counties/master/"
+    base_url = os.path.join(APP_PATH, "data\\geolayer\\")
     for bin in BINS:
-        geo_layer = dict(
-            sourcetype="geojson",
-            source=base_url + str(decade) + "/" + bin + ".geojson",
-            type="fill",
-            color=cm[bin],
-            opacity=DEFAULT_OPACITY,
-            # CHANGE THIS
-            fill=dict(outlinecolor="#afafaf"),
-        )
-        layout["mapbox"]["layers"].append(geo_layer)
+        start_year, end_year = bin.split('-')
+        with open(base_url + start_year + start_year + "-" + end_year + ".geojson") as json_file:
+            geo_json = json.load(json_file)
+            geo_layer = dict(
+                source={
+                    'type': "FeatureCollection",
+                    'features': [dict(type='Feature', geometry=feat['geometry']) for feat in geo_json['features']]
+                },
+                type="fill",
+                color=cm[bin],
+                opacity=DEFAULT_OPACITY,
+                # CHANGE THIS
+                fill=dict(outlinecolor=cm[bin]),
+            )
+            layout["mapbox"]["layers"].append(geo_layer)
 
     fig = dict(data=data, layout=layout)
     return fig
@@ -337,7 +336,7 @@ def display_selected_data(selectedData, chart_dropdown, decade):
         return dict(
             data=[dict(x=0, y=0)],
             layout=dict(
-                title="Click-drag on the map to select counties",
+                title="Click-drag on the map to select buildings",
                 paper_bgcolor="#1f2630",
                 plot_bgcolor="#1f2630",
                 font=dict(color="#2cfec1"),
@@ -351,30 +350,19 @@ def display_selected_data(selectedData, chart_dropdown, decade):
             fips[i] = "0" + fips[i]
     dff = df_full_data.sort_values(YEAR_COLUMN)
 
-    if chart_dropdown != "show_all_time":
-        title = "Absolute deaths per county, <b>1999-2016</b>"
-        AGGREGATE_BY = "Deaths"
-        if "show_absolute_deaths_single_year" == chart_dropdown:
-            dff = dff[dff.decade == decade]
-            title = "Absolute deaths per county, <b>{0}</b>".format(decade)
-        elif "show_death_rate_single_year" == chart_dropdown:
-            dff = dff[dff.Year == decade]
-            title = "Age-adjusted death rate per county, <b>{0}</b>".format(decade)
-            AGGREGATE_BY = "Age Adjusted Rate"
+    if chart_dropdown == "show_single_decade":
+        title = f"Construction Materials ratio in {decade}'s"
+        building_materials = [f"{BUILDING_MATERIAL_COLUMN_PREFIX}{mat_id}" for mat_id in BUILDING_MATERIALS]
+        ratio = pd.DataFrame(dff[dff["decade"] == decade][building_materials].mean(axis=0).values, columns=['Material Ratio'])
 
-        dff[AGGREGATE_BY] = pd.to_numeric(dff[AGGREGATE_BY], errors="coerce")
-        deaths_or_rate_by_fips = dff.groupby("County")[AGGREGATE_BY].sum()
-        deaths_or_rate_by_fips = deaths_or_rate_by_fips.sort_values()
-        # Only look at non-zero rows:
-        deaths_or_rate_by_fips = deaths_or_rate_by_fips[deaths_or_rate_by_fips > 0]
-        fig = deaths_or_rate_by_fips.iplot(
-            kind="bar", y=AGGREGATE_BY, title=title, asFigure=True
+        fig = ratio.iplot(
+            kind="bar", y="Material Ratio", title=title, asFigure=True
         )
 
         fig_layout = fig["layout"]
         fig_data = fig["data"]
 
-        fig_data[0]["text"] = deaths_or_rate_by_fips.values.tolist()
+        fig_data[0]["text"] = ratio.values.tolist()
         fig_data[0]["marker"]["color"] = "#2cfec1"
         fig_data[0]["marker"]["opacity"] = 1
         fig_data[0]["marker"]["line"]["width"] = 0
@@ -396,10 +384,10 @@ def display_selected_data(selectedData, chart_dropdown, decade):
 
     fig = dff.iplot(
         kind="area",
-        x="Year",
+        x="Decade",
         y="Age Adjusted Rate",
-        text="County",
-        categories="County",
+        text="Material",
+        categories="Material",
         colors=[
             "#1b9e77",
             "#d95f02",
