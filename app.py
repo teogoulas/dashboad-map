@@ -68,25 +68,21 @@ raw_data[YEAR_COLUMN] = raw_data[YEAR_COLUMN].astype(int)
 df_full_data = raw_data[raw_data[YEAR_COLUMN] >= START_YEAR]
 
 df_full_data['decade'] = calculate_decade(df_full_data, YEAR_COLUMN, PERIOD, START_YEAR)
-YEARS = np.unique(df_full_data['decade'].values.tolist())
+DECADES = np.unique(df_full_data['decade'].values.tolist())
+
+BUILDING_MATERIALS = list(range(1, 7))
+BUILDING_MATERIAL_COLUMN_PREFIX = 'bcn_mate_'
 
 BINS = [
-    "0-2",
-    "2.1-4",
-    "4.1-6",
-    "6.1-8",
-    "8.1-10",
-    "10.1-12",
-    "12.1-14",
-    "14.1-16",
-    "16.1-18",
-    "18.1-20",
-    "20.1-22",
-    "22.1-24",
-    "24.1-26",
-    "26.1-28",
-    "28.1-30",
-    ">30",
+    "0-1000",
+    "1000-2500",
+    "2500-5000",
+    "5000-7500",
+    "7500-10000",
+    "10000-15000",
+    "15000-20000",
+    "20000-30000",
+    ">30000",
 ]
 
 DEFAULT_COLORSCALE = [
@@ -99,13 +95,6 @@ DEFAULT_COLORSCALE = [
     "#59dab2",
     "#45d0a5",
     "#31c194",
-    "#2bb489",
-    "#25a27b",
-    "#1e906d",
-    "#188463",
-    "#157658",
-    "#11684d",
-    "#10523e",
 ]
 
 DEFAULT_OPACITY = 0.8
@@ -154,19 +143,19 @@ app.layout = html.Div(
                             children=[
                                 html.P(
                                     id="slider-text",
-                                    children="Drag the slider to change the year:",
+                                    children="Drag the slider to change the decade:",
                                 ),
                                 dcc.Slider(
                                     id="years-slider",
-                                    min=min(YEARS),
-                                    max=max(YEARS),
-                                    value=min(YEARS),
+                                    min=min(DECADES),
+                                    max=max(DECADES),
+                                    value=min(DECADES),
                                     marks={
-                                        str(year): {
-                                            "label": str(year),
+                                        str(decade): {
+                                            "label": str(decade),
                                             "style": {"color": "#7fafdf"},
                                         }
-                                        for year in YEARS
+                                        for decade in DECADES
                                     },
                                 ),
                             ],
@@ -175,9 +164,8 @@ app.layout = html.Div(
                             id="heatmap-container",
                             children=[
                                 html.P(
-                                    "Heatmap of age adjusted mortality rates \
-                            from poisonings in year {0}".format(
-                                        min(YEARS)
+                                    "Heatmap of buildings built in {0}'s".format(
+                                        min(DECADES)
                                     ),
                                     id="heatmap-title",
                                 ),
@@ -210,23 +198,15 @@ app.layout = html.Div(
                         dcc.Dropdown(
                             options=[
                                 {
-                                    "label": "Histogram of total number of deaths (single year)",
-                                    "value": "show_absolute_deaths_single_year",
+                                    "label": "Histogram of material distribution (single decade)",
+                                    "value": "show_single_year",
                                 },
                                 {
-                                    "label": "Histogram of total number of deaths (1999-2016)",
-                                    "value": "absolute_deaths_all_time",
-                                },
-                                {
-                                    "label": "Age-adjusted death rate (single year)",
-                                    "value": "show_death_rate_single_year",
-                                },
-                                {
-                                    "label": "Trends in age-adjusted death rate (1999-2016)",
-                                    "value": "death_rate_all_time",
-                                },
+                                    "label": "Histogram of total material distribution (1900-present)",
+                                    "value": "show_all_time",
+                                }
                             ],
-                            value="show_death_rate_single_year",
+                            value="show_single_year",
                             id="chart-dropdown",
                         ),
                         dcc.Graph(
@@ -254,7 +234,7 @@ app.layout = html.Div(
     [Input("years-slider", "value")],
     [State("county-choropleth", "figure")],
 )
-def display_map(year, figure):
+def display_map(decade, figure):
     cm = dict(zip(BINS, DEFAULT_COLORSCALE))
 
     data = [
@@ -272,7 +252,7 @@ def display_map(year, figure):
         dict(
             showarrow=False,
             align="right",
-            text="<b>Age-adjusted death rate<br>per county per year</b>",
+            text="<b>Buildings<br>per year</b>",
             font=dict(color="#2cfec1"),
             bgcolor="#1f2630",
             x=0.95,
@@ -324,7 +304,7 @@ def display_map(year, figure):
     for bin in BINS:
         geo_layer = dict(
             sourcetype="geojson",
-            source=base_url + str(year) + "/" + bin + ".geojson",
+            source=base_url + str(decade) + "/" + bin + ".geojson",
             type="fill",
             color=cm[bin],
             opacity=DEFAULT_OPACITY,
@@ -338,10 +318,9 @@ def display_map(year, figure):
 
 
 @app.callback(Output("heatmap-title", "children"), [Input("years-slider", "value")])
-def update_map_title(year):
-    return "Heatmap of age adjusted mortality rates \
-				from poisonings in year {0}".format(
-        year
+def update_map_title(decade):
+    return "Heatmap of buildings built in {0}'s".format(
+        decade
     )
 
 
@@ -353,7 +332,7 @@ def update_map_title(year):
         Input("years-slider", "value"),
     ],
 )
-def display_selected_data(selectedData, chart_dropdown, year):
+def display_selected_data(selectedData, chart_dropdown, decade):
     if selectedData is None:
         return dict(
             data=[dict(x=0, y=0)],
@@ -372,15 +351,15 @@ def display_selected_data(selectedData, chart_dropdown, year):
             fips[i] = "0" + fips[i]
     dff = df_full_data.sort_values(YEAR_COLUMN)
 
-    if chart_dropdown != "death_rate_all_time":
+    if chart_dropdown != "show_all_time":
         title = "Absolute deaths per county, <b>1999-2016</b>"
         AGGREGATE_BY = "Deaths"
         if "show_absolute_deaths_single_year" == chart_dropdown:
-            dff = dff[dff.decade == year]
-            title = "Absolute deaths per county, <b>{0}</b>".format(year)
+            dff = dff[dff.decade == decade]
+            title = "Absolute deaths per county, <b>{0}</b>".format(decade)
         elif "show_death_rate_single_year" == chart_dropdown:
-            dff = dff[dff.Year == year]
-            title = "Age-adjusted death rate per county, <b>{0}</b>".format(year)
+            dff = dff[dff.Year == decade]
+            title = "Age-adjusted death rate per county, <b>{0}</b>".format(decade)
             AGGREGATE_BY = "Age Adjusted Rate"
 
         dff[AGGREGATE_BY] = pd.to_numeric(dff[AGGREGATE_BY], errors="coerce")
@@ -432,7 +411,7 @@ def display_selected_data(selectedData, chart_dropdown, year):
             "#666666",
             "#1b9e77",
         ],
-        vline=[year],
+        vline=[decade],
         asFigure=True,
     )
 
