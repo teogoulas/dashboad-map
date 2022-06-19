@@ -93,8 +93,8 @@ DEFAULT_COLORSCALE = [
 
 DEFAULT_OPACITY = 0.8
 
-mapbox_access_token = "pk.eyJ1IjoicGxvdGx5bWFwYm94IiwiYSI6ImNrOWJqb2F4djBnMjEzbG50amg0dnJieG4ifQ.Zme1-Uzoi75IaFbieBDl3A"
-mapbox_style = "mapbox://styles/plotlymapbox/cjvprkf3t1kns1cqjxuxmwixz"
+mapbox_access_token = "pk.eyJ1IjoiZGxhbXByaWFkaXMiLCJhIjoiY2trbjBtc21vMnZ4czJ1bW4xYXFyZm1heiJ9.xxVx5fDYx8WhvUH7klNOkw"
+mapbox_style = "mapbox://styles/dlampriadis/ckmc4twhb9euf17pgd3kog7c0"
 
 # App layout
 
