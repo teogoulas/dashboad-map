@@ -71,8 +71,11 @@ df_full_data = raw_data[raw_data[YEAR_COLUMN] >= START_YEAR]
 df_full_data['decade'] = calculate_decade(df_full_data, YEAR_COLUMN, PERIOD, START_YEAR)
 DECADES = np.unique(df_full_data['decade'].values.tolist())
 
-BUILDING_MATERIALS = list(range(1, 7))
 BUILDING_MATERIAL_COLUMN_PREFIX = 'bcn_mate_'
+BUILDING_MATERIALS = [f"{BUILDING_MATERIAL_COLUMN_PREFIX}{mat_id}" for mat_id in list(range(1, 7))]
+
+for mat_id in BUILDING_MATERIALS:
+    df_full_data[mat_id] = df_full_data[mat_id].apply(lambda x: float(0) if x >= 1 else x)
 
 BINS = [f"{str(decade)}-{str(decade + PERIOD)}" for decade in DECADES]
 
@@ -116,13 +119,10 @@ app.layout = html.Div(
                     html.Button("Source Code", className="link-button"),
                     href="https://github.com/plotly/dash-sample-apps/tree/main/apps/dash-opioid-epidemic",
                 ),
-                html.H4(children="Rate of US Poison-Induced Deaths"),
+                html.H4(children="WRITE SOMETHING HERE"),
                 html.P(
                     id="description",
-                    children="† Deaths are classified using the International Classification of Diseases, \
-                    Tenth Revision (ICD–10). Drug-poisoning deaths are defined as having ICD–10 underlying \
-                    cause-of-death codes X40–X44 (unintentional), X60–X64 (suicide), X85 (homicide), or Y10–Y14 \
-                    (undetermined intent).",
+                    children="WRITE SOMETHING HERE",
                 ),
             ],
         ),
@@ -188,21 +188,6 @@ app.layout = html.Div(
                 html.Div(
                     id="graph-container",
                     children=[
-                        html.P(id="chart-selector", children="Select chart:"),
-                        dcc.Dropdown(
-                            options=[
-                                {
-                                    "label": "Histogram of material distribution (single decade)",
-                                    "value": "show_single_decade",
-                                },
-                                {
-                                    "label": "Histogram of total material distribution (1900-present)",
-                                    "value": "show_all_time",
-                                }
-                            ],
-                            value="show_single_decade",
-                            id="chart-dropdown",
-                        ),
                         dcc.Graph(
                             id="selected-data",
                             figure=dict(
@@ -235,7 +220,8 @@ def display_map(decade, figure):
         dict(
             lat=df_full_data["y"],
             lon=df_full_data["x"],
-            text=df_full_data[YEAR_COLUMN],
+            text=df_full_data.apply(lambda row: f"Building Id: {int(row['ogc_fid'])}<br>Built at: {int(row[YEAR_COLUMN])}",
+                                    axis=1).values.tolist(),
             type="scattermapbox",
             hoverinfo="text",
             marker=dict(size=5, color="white", opacity=0),
@@ -327,11 +313,10 @@ def update_map_title(decade):
     Output("selected-data", "figure"),
     [
         Input("county-choropleth", "selectedData"),
-        Input("chart-dropdown", "value"),
         Input("years-slider", "value"),
     ],
 )
-def display_selected_data(selectedData, chart_dropdown, decade):
+def display_selected_data(selectedData, decade):
     if selectedData is None:
         return dict(
             data=[dict(x=0, y=0)],
@@ -344,99 +329,33 @@ def display_selected_data(selectedData, chart_dropdown, decade):
             ),
         )
     pts = selectedData["points"]
-    fips = [str(pt["text"].split("<br>")[-1]) for pt in pts]
-    for i in range(len(fips)):
-        if len(fips[i]) == 4:
-            fips[i] = "0" + fips[i]
+    fips = [str(pt["text"].split("<br>")[0].split()[1].strip()) for pt in pts]
     dff = df_full_data.sort_values(YEAR_COLUMN)
 
-    if chart_dropdown == "show_single_decade":
-        title = f"Construction Materials ratio in {decade}'s"
-        building_materials = [f"{BUILDING_MATERIAL_COLUMN_PREFIX}{mat_id}" for mat_id in BUILDING_MATERIALS]
-        ratio = pd.DataFrame(dff[dff["decade"] == decade][building_materials].mean(axis=0).values, columns=['Material Ratio'])
+    title = f"Construction Materials ratio in {decade}'s<br><b>{int(len(fips))}</b> buildings selected"
+    materials_df = dff[dff["decade"] == decade][BUILDING_MATERIALS].fillna(0)
+    ratio_df = pd.DataFrame(materials_df.mean(axis=0).values, columns=['Material Ratio'])
 
-        fig = ratio.iplot(
-            kind="bar", y="Material Ratio", title=title, asFigure=True
-        )
-
-        fig_layout = fig["layout"]
-        fig_data = fig["data"]
-
-        fig_data[0]["text"] = ratio.values.tolist()
-        fig_data[0]["marker"]["color"] = "#2cfec1"
-        fig_data[0]["marker"]["opacity"] = 1
-        fig_data[0]["marker"]["line"]["width"] = 0
-        fig_data[0]["textposition"] = "outside"
-        fig_layout["paper_bgcolor"] = "#1f2630"
-        fig_layout["plot_bgcolor"] = "#1f2630"
-        fig_layout["font"]["color"] = "#2cfec1"
-        fig_layout["title"]["font"]["color"] = "#2cfec1"
-        fig_layout["xaxis"]["tickfont"]["color"] = "#2cfec1"
-        fig_layout["yaxis"]["tickfont"]["color"] = "#2cfec1"
-        fig_layout["xaxis"]["gridcolor"] = "#5b5b5b"
-        fig_layout["yaxis"]["gridcolor"] = "#5b5b5b"
-        fig_layout["margin"]["t"] = 75
-        fig_layout["margin"]["r"] = 50
-        fig_layout["margin"]["b"] = 100
-        fig_layout["margin"]["l"] = 50
-
-        return fig
-
-    fig = dff.iplot(
-        kind="area",
-        x="Decade",
-        y="Age Adjusted Rate",
-        text="Material",
-        categories="Material",
-        colors=[
-            "#1b9e77",
-            "#d95f02",
-            "#7570b3",
-            "#e7298a",
-            "#66a61e",
-            "#e6ab02",
-            "#a6761d",
-            "#666666",
-            "#1b9e77",
-        ],
-        vline=[decade],
-        asFigure=True,
+    fig = ratio_df.iplot(
+        kind="bar", y="Material Ratio", title=title, asFigure=True
     )
 
-    for i, trace in enumerate(fig["data"]):
-        trace["mode"] = "lines+markers"
-        trace["marker"]["size"] = 4
-        trace["marker"]["line"]["width"] = 1
-        trace["type"] = "scatter"
-        for prop in trace:
-            fig["data"][i][prop] = trace[prop]
-
-    # Only show first 500 lines
-    fig["data"] = fig["data"][0:500]
-
     fig_layout = fig["layout"]
+    fig_data = fig["data"]
 
-    # See plot.ly/python/reference
-    fig_layout["yaxis"]["title"] = "Age-adjusted death rate per county per year"
-    fig_layout["xaxis"]["title"] = ""
-    fig_layout["yaxis"]["fixedrange"] = True
-    fig_layout["xaxis"]["fixedrange"] = False
-    fig_layout["hovermode"] = "closest"
-    fig_layout["title"] = "<b>{0}</b> counties selected".format(len(fips))
-    fig_layout["legend"] = dict(orientation="v")
-    fig_layout["autosize"] = True
+    fig_data[0]["text"] = [f"{round(ratio[0] * 100, 2)}%" for ratio in ratio_df.values.tolist()]
+    fig_data[0]["marker"]["color"] = "#2cfec1"
+    fig_data[0]["marker"]["opacity"] = 1
+    fig_data[0]["marker"]["line"]["width"] = 0
+    fig_data[0]["textposition"] = "outside"
     fig_layout["paper_bgcolor"] = "#1f2630"
     fig_layout["plot_bgcolor"] = "#1f2630"
     fig_layout["font"]["color"] = "#2cfec1"
+    fig_layout["title"]["font"]["color"] = "#2cfec1"
     fig_layout["xaxis"]["tickfont"]["color"] = "#2cfec1"
     fig_layout["yaxis"]["tickfont"]["color"] = "#2cfec1"
     fig_layout["xaxis"]["gridcolor"] = "#5b5b5b"
     fig_layout["yaxis"]["gridcolor"] = "#5b5b5b"
-
-    if len(fips) > 500:
-        fig["layout"][
-            "title"
-        ] = "Age-adjusted death rate per county per year <br>(only 1st 500 shown)"
 
     return fig
 
